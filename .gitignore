@@ -15,4 +15,4 @@
 # vendor/
 
 # goland folder
-.idea
+.idea/*
