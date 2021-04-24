@@ -40,7 +40,7 @@ type SafeType interface {
 	//
 	// For an interface type, the returned Method's Type field gives the
 	// method signature, without a receiver, and the Func field is nil.
-	MethodByName(string) (reflect.Method, bool)
+	MethodByName(string) (SafeMethod, bool)
 
 	// NumMethod returns the number of methods accessible using Method.
 	//
@@ -87,7 +87,7 @@ type SafeType interface {
 	// Bits returns the size of the type in bits.
 	// It panics if the type's Kind is not one of the
 	// sized or unsized Int, Uint, Float, or Complex kinds.
-	Bits() int
+	Bits() (int, error)
 
 	// ChanDir returns a channel type's direction.
 	// It errors if the type's Kind is not Chan.
@@ -200,8 +200,9 @@ func (s safeType) Method(i int) (SafeMethod, error) {
 	return NewSafeMethod(s.reflectType.Method(i)), nil
 }
 
-func (s safeType) MethodByName(s2 string) (reflect.Method, bool) {
-	return s.reflectType.MethodByName(s2)
+func (s safeType) MethodByName(s2 string) (SafeMethod, bool) {
+	m, ok := s.reflectType.MethodByName(s2)
+	return NewSafeMethod(m), ok
 }
 
 func (s safeType) NumMethod() int {
@@ -244,8 +245,13 @@ func (s safeType) Comparable() bool {
 	return s.reflectType.Comparable()
 }
 
-func (s safeType) Bits() int {
-	return s.reflectType.Bits()
+func (s safeType) Bits() (int, error) {
+	switch s.reflectType.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8,
+		 reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
+		return s.reflectType.Bits(), nil
+	}
+	return 0, errors.New("not a Int*, Uint*, Float* or Complex*")
 }
 
 func (s safeType) ChanDir() (reflect.ChanDir, error) {
@@ -286,7 +292,19 @@ func (s safeType) FieldByIndex(index []int) (reflect.StructField, error) {
 	if s.reflectType.Kind() != reflect.Struct {
 		return reflect.StructField{}, errors.New("type is not Struct")
 	}
-	return s.reflectType.FieldByIndex(index), nil
+
+	f := reflect.StructField{}
+	t := s
+	for _, i := range index {
+		field, err := t.Field(i)
+		if err != nil {
+			return reflect.StructField{}, err
+		}
+		f = field
+		t = safeType{reflectType: field.Type}
+	}
+
+	return f, nil
 }
 
 func (s safeType) FieldByName(name string) (reflect.StructField, bool) {
